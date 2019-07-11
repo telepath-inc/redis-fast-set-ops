@@ -1,0 +1,70 @@
+#!/bin/bash
+
+# set up test zsets
+for i in `seq 1 10`; do echo "zadd small1a $i l$i" | redis-cli >/dev/null; done
+for i in `seq 1 10`; do echo "zadd small1b $i l$i" | redis-cli >/dev/null; done
+for i in `seq 11 20`; do echo "zadd small11 $i l$i" | redis-cli >/dev/null; done
+for i in `seq 1 1000`; do echo "zadd large1a $i l$i" | redis-cli >/dev/null; done
+for i in `seq 1 1000`; do echo "zadd large1b $i l$i" | redis-cli >/dev/null; done
+for i in `seq 1001 2000`; do echo "zadd large1001 $i l$i" | redis-cli >/dev/null; done
+
+echo "===== small non-intersecting sets ====="
+echo "Parallel clients:"
+redis-benchmark -q zinterstore c 2 small1a small11 weights 1 0
+redis-benchmark -q zinterrangebyscore small1a small11 1 10
+echo "Single client:"
+redis-benchmark -q -c 1 -n 10000 zinterstore c 2 small1a small11 weights 1 0
+redis-benchmark -q -c 1 -n 10000 zinterrangebyscore small1a small11 1 10
+echo
+echo "===== small intersecting sets ====="
+echo "Parallel clients:"
+redis-benchmark -q zinterstore c 2 small1a small1b weights 1 0
+redis-benchmark -q zinterrangebyscore small1a small1b 1 10
+echo "Single client:"
+redis-benchmark -q -c 1 -n 10000 zinterstore c 2 small1a small1b weights 1 0
+redis-benchmark -q -c 1 -n 10000 zinterrangebyscore small1a small1b 1 10
+echo
+echo "===== first set large, second small ====="
+echo "Parallel clients:"
+redis-benchmark -q zinterstore c 2 large1a small1b weights 1 0
+redis-benchmark -q zinterrangebyscore large1a small1b 1 1000
+echo "Single client:"
+redis-benchmark -q -c 1 -n 10000 zinterstore c 2 large1a small1b weights 1 0
+redis-benchmark -q -c 1 -n 10000 zinterrangebyscore large1a small1b 1 1000
+echo
+echo "===== second set large, first small ====="
+echo "Parallel clients:"
+redis-benchmark -q zinterstore c 2 small1a large1a weights 1 0
+redis-benchmark -q zinterrangebyscore small1a large1a 1 10
+echo "Single client:"
+redis-benchmark -q -c 1 -n 10000 zinterstore c 2 small1a large1a weights 1 0
+redis-benchmark -q -c 1 -n 10000 zinterrangebyscore small1a large1a 1 1000
+echo
+echo "===== large non-intersecting sets ====="
+echo "Parallel clients:"
+redis-benchmark -q zinterstore c 2 large1a large1001 weights 1 0
+redis-benchmark -q zinterrangebyscore large1a large1001 1 1000
+echo "Single client:"
+redis-benchmark -q -c 1 -n 10000 zinterstore c 2 large1a large1001 weights 1 0
+redis-benchmark -q -c 1 -n 10000 zinterrangebyscore large1a large1001 1 1000
+echo
+echo "===== large intersecting sets ====="
+echo "Parallel clients:"
+redis-benchmark -q zinterstore c 2 large1a large1b weights 1 0
+redis-benchmark -q zinterrangebyscore large1a large1b 1 1000
+echo "Single client:"
+redis-benchmark -q -c 1 -n 10000 zinterstore c 2 large1a large1b weights 1 0
+redis-benchmark -q -c 1 -n 10000 zinterrangebyscore large1a large1b 1 1000
+echo
+echo "===== large sets, small range ====="
+echo "Parallel clients:"
+redis-benchmark -q zinterstore c 2 large1a large1b weights 1 0
+redis-benchmark -q zinterrangebyscore large1a large1b 1 10
+echo "Single client:"
+redis-benchmark -q -c 1 -n 10000 zinterstore c 2 large1a large1b weights 1 0
+redis-benchmark -q -c 1 -n 10000 zinterrangebyscore large1a large1b 1 10
+
+# cleanup up test zsets
+for s in "small1a small1b small11 large1a large1b large1001"; do
+    echo "del $s" | redis-cli >/dev/null;
+done;
