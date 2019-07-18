@@ -41,6 +41,11 @@ start_server $options {
             create_default_zset
             create_default_interset
 
+            # non-existenet keys
+            assert_equal {} [r zinterrangebyscore zset nonset -inf +inf]
+            assert_equal {} [r zinterrangebyscore nonset zset -inf +inf]
+            assert_equal {} [r zinterrangebyscore nonset nonset -inf +inf]
+
             assert_equal {b c} [r zinterrangebyscore zset interset -inf 2]
             assert_equal {b c d} [r zinterrangebyscore zset interset 0 3]
             assert_equal {d e f} [r zinterrangebyscore zset interset 3 6]

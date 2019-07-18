@@ -78,18 +78,26 @@ int zinterrangebyscoreGenericCommand(RedisModuleCtx *ctx,
     }
 
     /* read keys to be used for input */
-    if ((zset = RedisModule_OpenKey(ctx,argv[1],REDISMODULE_READ)) == NULL
-         || RedisModule_KeyType(zset) != REDISMODULE_KEYTYPE_ZSET) {
+    if ((zset = RedisModule_OpenKey(ctx,argv[1],REDISMODULE_READ)) != NULL
+         && RedisModule_KeyType(zset) != REDISMODULE_KEYTYPE_ZSET) {
         RedisModule_CloseKey(zset);
         RedisModule_ReplyWithError(ctx, "ERR first key is not a sorted set");
         return REDISMODULE_ERR;
     }
-    if ((interset = RedisModule_OpenKey(ctx,argv[2],REDISMODULE_READ)) == NULL
-         || RedisModule_KeyType(interset) != REDISMODULE_KEYTYPE_ZSET) {
+    if ((interset = RedisModule_OpenKey(ctx,argv[2],REDISMODULE_READ)) != NULL
+         && RedisModule_KeyType(interset) != REDISMODULE_KEYTYPE_ZSET) {
         RedisModule_CloseKey(zset);
         RedisModule_CloseKey(interset);
         RedisModule_ReplyWithError(ctx, "ERR second key is not a sorted set");
         return REDISMODULE_ERR;
+    }
+
+    /* If either key doesn't exist, the intersection is empty. */
+    if (zset == NULL || interset == NULL) {
+        RedisModule_CloseKey(zset);
+        RedisModule_CloseKey(interset);
+        RedisModule_ReplyWithArray(ctx, 0);
+        return REDISMODULE_OK;
     }
 
     /* set up iterator for scored input */
