@@ -2,6 +2,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define SET_COMMAND_DIFF 0
+#define SET_COMMAND_INTER 1
+#define SET_COMMAND_UNION 2
+
 int zinterrangebyscoreGenericCommand(RedisModuleCtx *ctx,
                                      RedisModuleString **argv,
                                      int argc, int reverse) {
@@ -156,6 +160,52 @@ int ZInterRevRangeByScore_RedisCommand(RedisModuleCtx *ctx,
     return zinterrangebyscoreGenericCommand(ctx, argv, argc, 1);
 }
 
+int SDiffInterUnionCard_GenericCommand(RedisModuleCtx *ctx,
+                                       RedisModuleString **argv,
+                                       int argc,
+                                       int cmdid) {
+    const char *cmd;
+    RedisModuleCallReply *reply;
+
+    if (cmdid == SET_COMMAND_DIFF) {
+        cmd = "SDIFF";
+    } else if (cmdid == SET_COMMAND_INTER) {
+        cmd = "SINTER";
+    } else if (cmdid == SET_COMMAND_UNION) {
+        cmd = "SUNION";
+    }
+    reply = RedisModule_Call(ctx,cmd,"v",argv+1,argc-1);
+
+    if (RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ERROR) {
+      RedisModule_ReplyWithCallReply(ctx, reply);
+      RedisModule_FreeCallReply(reply);
+      return REDISMODULE_ERR;
+    }
+
+    size_t card = RedisModule_CallReplyLength(reply);
+    RedisModule_FreeCallReply(reply);
+    RedisModule_ReplyWithLongLong(ctx, card);
+    return REDISMODULE_OK;
+}
+
+int SDiffCard_RedisCommand(RedisModuleCtx *ctx,
+                           RedisModuleString **argv,
+                           int argc) {
+    return SDiffInterUnionCard_GenericCommand(ctx, argv, argc, SET_COMMAND_DIFF);
+}
+
+int SInterCard_RedisCommand(RedisModuleCtx *ctx,
+                            RedisModuleString **argv,
+                            int argc) {
+    return SDiffInterUnionCard_GenericCommand(ctx, argv, argc, SET_COMMAND_INTER);
+}
+
+int SUnionCard_RedisCommand(RedisModuleCtx *ctx,
+                            RedisModuleString **argv,
+                            int argc) {
+    return SDiffInterUnionCard_GenericCommand(ctx, argv, argc, SET_COMMAND_UNION);
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (RedisModule_Init(ctx,"zinterrange",1,REDISMODULE_APIVER_1) == REDISMODULE_ERR)
 		return REDISMODULE_ERR;
@@ -171,6 +221,25 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                                   "readonly",1,2,1)
             == REDISMODULE_ERR)
         return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "sintercard",
+                                  SInterCard_RedisCommand,
+                                  "readonly",1,-1,1)
+            == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "sdiffcard",
+                                  SDiffCard_RedisCommand,
+                                  "readonly",1,-1,1)
+            == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "sunioncard",
+                                  SUnionCard_RedisCommand,
+                                  "readonly",1,-1,1)
+            == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
 
     return REDISMODULE_OK;
 }

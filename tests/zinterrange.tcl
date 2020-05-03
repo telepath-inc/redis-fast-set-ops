@@ -2,6 +2,169 @@
 set moduleLocation [file dirname [file normalize [info script]]]
 dict set options overrides "loadmodule ${moduleLocation}/../src/zinterrange.so"
 start_server $options {
+
+    proc runs {encoding} {
+        if {$encoding == "intset"} {
+            r config set set-max-intset-entries 512
+        } elseif {$encoding == "hashtable"} {
+            r config set set-max-intset-entries 0
+        } else {
+            puts "Unknown set encoding"
+            exit
+        }
+
+        test "Check encoding - $encoding" {
+            r del stmp
+            r sadd stmp 2
+            assert_encoding $encoding stmp
+        }
+
+        test "SDIFFCARD/SINTERCARD/SUNIONCARD non-existent keys" {
+            assert_equal 0 [r sdiffcard nonset]
+            assert_equal 0 [r sintercard nonset]
+            assert_equal 0 [r sunioncard nonset]
+        }
+
+        proc create_nonsets {} {
+            r del t
+            r set t t
+            r del l
+            r lpush l 1
+            r del h
+            r hset h f v
+        }
+
+        test "SDIFFCARD/SINTERCARD/SUNIONCARD non-set single keys" {
+            create_nonsets
+            assert_error "*WRONGTYPE*" {r sdiffcard t}
+            assert_error "*WRONGTYPE*" {r sdiffcard l}
+            assert_error "*WRONGTYPE*" {r sdiffcard h}
+            assert_error "*WRONGTYPE*" {r sintercard t}
+            assert_error "*WRONGTYPE*" {r sintercard l}
+            assert_error "*WRONGTYPE*" {r sintercard h}
+            assert_error "*WRONGTYPE*" {r sunioncard t}
+            assert_error "*WRONGTYPE*" {r sunioncard l}
+            assert_error "*WRONGTYPE*" {r sunioncard h}
+        }
+
+        proc create_default_set {} {
+            r del set
+            r sadd set a b c d e f g
+        }
+
+        proc create_default_otherset {} {
+            r del otherset
+            r sadd otherset b d f h
+        }
+
+        test "SDIFFCARD/SINTERCARD/SUNIONCARD basic" {
+            create_default_set
+            create_default_otherset
+
+            assert_equal 4 [r sdiffcard set otherset]
+            assert_equal 1 [r sdiffcard otherset set]
+            assert_equal 3 [r sintercard set otherset]
+            assert_equal 3 [r sintercard otherset set]
+            assert_equal 8 [r sunioncard set otherset]
+            assert_equal 8 [r sunioncard otherset set]
+        }
+
+        test "SDIFFCARD/SINTERCARD/SUNIONCARD duplicate" {
+            create_default_set
+            create_default_otherset
+
+            assert_equal 4 [r sdiffcard set otherset otherset]
+            assert_equal 1 [r sdiffcard otherset set set]
+            assert_equal 3 [r sintercard set otherset otherset]
+            assert_equal 3 [r sintercard otherset set set]
+            assert_equal 8 [r sunioncard set otherset otherset]
+            assert_equal 8 [r sunioncard otherset set set]
+        }
+
+        test "SDIFFCARD/SINTERCARD/SUNIONCARD self" {
+            create_default_set
+            create_default_otherset
+
+            assert_equal 0 [r sdiffcard set set]
+            assert_equal 0 [r sdiffcard otherset otherset]
+            assert_equal 7 [r sintercard set set]
+            assert_equal 4 [r sintercard otherset otherset]
+            assert_equal 7 [r sunioncard set set]
+            assert_equal 4 [r sunioncard otherset otherset]
+        }
+
+        test "SDIFFCARD/SINTERCARD/SUNIONCARD multi" {
+            create_default_set
+            create_default_otherset
+
+            r del third
+            r sadd third c z
+
+            assert_equal 3 [r sdiffcard set otherset third]
+            assert_equal 1 [r sdiffcard otherset set third]
+            assert_equal 0 [r sintercard set otherset third]
+            assert_equal 0 [r sintercard otherset set third]
+            assert_equal 9 [r sunioncard set otherset third]
+            assert_equal 9 [r sunioncard otherset set third]
+
+            r del fourth
+            r sadd fourth f
+
+            assert_equal 3 [r sdiffcard set otherset third fourth]
+            assert_equal 1 [r sdiffcard otherset set third fourth]
+            assert_equal 0 [r sintercard set otherset third fourth]
+            assert_equal 0 [r sintercard otherset set third fourth]
+            assert_equal 9 [r sunioncard set otherset third fourth]
+            assert_equal 9 [r sunioncard otherset set third fourth]
+        }
+
+        test "SDIFFCARD/SINTERCARD/SUNIONCARD empty other keys" {
+            create_default_set
+            create_default_otherset
+
+            assert_equal 4 [r sdiffcard set otherset nonset]
+            assert_equal 1 [r sdiffcard otherset set nonset]
+            assert_equal 0 [r sintercard set otherset nonset]
+            assert_equal 0 [r sintercard otherset set nonset]
+            assert_equal 8 [r sunioncard set otherset nonset]
+            assert_equal 8 [r sunioncard otherset set nonset]
+        }
+
+        test "SDIFFCARD/SINTERCARD/SUNIONCARD non-set other keys" {
+            create_nonsets
+            assert_error "*WRONGTYPE*" {r sdiffcard set otherset t}
+            assert_error "*WRONGTYPE*" {r sdiffcard set t otherset}
+            assert_error "*WRONGTYPE*" {r sdiffcard t set otherset}
+            assert_error "*WRONGTYPE*" {r sdiffcard set otherset l}
+            assert_error "*WRONGTYPE*" {r sdiffcard set l otherset}
+            assert_error "*WRONGTYPE*" {r sdiffcard l otherset set}
+            assert_error "*WRONGTYPE*" {r sdiffcard set otherset h}
+            assert_error "*WRONGTYPE*" {r sdiffcard set h otherset}
+            assert_error "*WRONGTYPE*" {r sdiffcard h set otherset}
+            assert_error "*WRONGTYPE*" {r sintercard set otherset t}
+            assert_error "*WRONGTYPE*" {r sintercard set t otherset}
+            assert_error "*WRONGTYPE*" {r sintercard t set otherset}
+            assert_error "*WRONGTYPE*" {r sintercard set otherset h}
+            assert_error "*WRONGTYPE*" {r sintercard set h otherset}
+            assert_error "*WRONGTYPE*" {r sintercard h set otherset}
+            assert_error "*WRONGTYPE*" {r sintercard set otherset l}
+            assert_error "*WRONGTYPE*" {r sintercard set l otherset}
+            assert_error "*WRONGTYPE*" {r sintercard l set otherset}
+            assert_error "*WRONGTYPE*" {r sunioncard set otherset t}
+            assert_error "*WRONGTYPE*" {r sunioncard set t otherset}
+            assert_error "*WRONGTYPE*" {r sunioncard t set otherset}
+            assert_error "*WRONGTYPE*" {r sunioncard set otherset h}
+            assert_error "*WRONGTYPE*" {r sunioncard set h otherset}
+            assert_error "*WRONGTYPE*" {r sunioncard h set otherset}
+            assert_error "*WRONGTYPE*" {r sunioncard set otherset l}
+            assert_error "*WRONGTYPE*" {r sunioncard set l otherset}
+            assert_error "*WRONGTYPE*" {r sunioncard l set otherset}
+        }
+    }
+
+    runs intset
+    runs hashtable
+
     proc create_zset {key items} {
         r del $key
         foreach {score entry} $items {
@@ -9,7 +172,7 @@ start_server $options {
         }
     }
 
-    proc run {encoding} {
+    proc runz {encoding} {
         if {$encoding == "ziplist"} {
             r config set zset-max-ziplist-entries 128
             r config set zset-max-ziplist-value 64
@@ -104,6 +267,6 @@ start_server $options {
         }
     }
 
-    run ziplist
-    run skiplist
+    runz ziplist
+    runz skiplist
 }
