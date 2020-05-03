@@ -1,4 +1,7 @@
 #include "redismodule.h"
+#include <ctype.h>
+#include <errno.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -6,11 +9,33 @@
 #define SET_COMMAND_INTER 1
 #define SET_COMMAND_UNION 2
 
+/*  copied from redis/src/util.c since unfortunately there isn't
+    something similar exposed by the modules API    */
+int string2d(const char *s, size_t slen, double *dp) {
+    errno = 0;
+    char *eptr;
+    *dp = strtod(s, &eptr);
+    if (slen == 0 ||
+        isspace(((const char*)s)[0]) ||
+        (size_t)(eptr-(char*)s) != slen ||
+        (errno == ERANGE &&
+            (*dp == HUGE_VAL || *dp == -HUGE_VAL || *dp == 0)) ||
+        isnan(*dp))
+        return 0;
+    return 1;
+}
+
 int zinterrangebyscoreGenericCommand(RedisModuleCtx *ctx,
                                      RedisModuleString **argv,
                                      int argc, int reverse) {
     RedisModuleKey *zset = NULL, *interset = NULL;
+    const char *startstr;
+    size_t startstrlen;
+    int startex = 0;
     double start;
+    const char *endstr;
+    size_t endstrlen;
+    int endex = 0;
     double end;
     int withscores = 0;
     long long limit = -1;
@@ -68,10 +93,27 @@ int zinterrangebyscoreGenericCommand(RedisModuleCtx *ctx,
 
     }
 
-    /* Get and sanitize indexes. Note: does not support exclusive ranges. */
-    if ((RedisModule_StringToDouble(argv[3], &start) != REDISMODULE_OK) ||
-        (RedisModule_StringToDouble(argv[4], &end) != REDISMODULE_OK)) {
-        RedisModule_ReplyWithError(ctx, "ERR range args are not valid floats");
+    /* Get and sanitize indexes. */
+    startstr = RedisModule_StringPtrLen(argv[3], &startstrlen);
+    if (startstr[0] == '(') {
+        /* this marks an exlusive interval */
+        startex = 1;
+        startstr++;
+        startstrlen--;
+    }
+    if (!string2d(startstr, startstrlen, &start)) {
+        RedisModule_ReplyWithError(ctx, "ERR min or max is not a float");
+        return REDISMODULE_ERR;
+    }
+    endstr = RedisModule_StringPtrLen(argv[4], &endstrlen);
+    if (endstr[0] == '(') {
+        /* this marks an exlusive interval */
+        endex = 1;
+        endstr++;
+        endstrlen--;
+    }
+    if (!string2d(endstr, endstrlen, &end)) {
+        RedisModule_ReplyWithError(ctx, "ERR min or max is not a float");
         return REDISMODULE_ERR;
     }
     /* The range is empty when start > end, or the inverse if the reverse
@@ -85,14 +127,16 @@ int zinterrangebyscoreGenericCommand(RedisModuleCtx *ctx,
     if ((zset = RedisModule_OpenKey(ctx,argv[1],REDISMODULE_READ)) != NULL
          && RedisModule_KeyType(zset) != REDISMODULE_KEYTYPE_ZSET) {
         RedisModule_CloseKey(zset);
-        RedisModule_ReplyWithError(ctx, "ERR first key is not a sorted set");
+        RedisModule_ReplyWithError(ctx,
+                                   "WRONGTYPE Operation against a key holding the wrong kind of value");
         return REDISMODULE_ERR;
     }
     if ((interset = RedisModule_OpenKey(ctx,argv[2],REDISMODULE_READ)) != NULL
          && RedisModule_KeyType(interset) != REDISMODULE_KEYTYPE_ZSET) {
         RedisModule_CloseKey(zset);
         RedisModule_CloseKey(interset);
-        RedisModule_ReplyWithError(ctx, "ERR second key is not a sorted set");
+        RedisModule_ReplyWithError(ctx,
+                                   "WRONGTYPE Operation against a key holding the wrong kind of value");
         return REDISMODULE_ERR;
     }
 
@@ -106,9 +150,9 @@ int zinterrangebyscoreGenericCommand(RedisModuleCtx *ctx,
 
     /* set up iterator for scored input */
     if (reverse) {
-        RedisModule_ZsetLastInScoreRange(zset, end, start, 0, 0);
+        RedisModule_ZsetLastInScoreRange(zset, end, start, endex, startex);
     } else {
-        RedisModule_ZsetFirstInScoreRange(zset, start, end, 0, 0);
+        RedisModule_ZsetFirstInScoreRange(zset, start, end, startex, endex);
     }
 
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);

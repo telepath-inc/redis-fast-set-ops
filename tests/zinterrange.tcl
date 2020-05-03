@@ -200,6 +200,15 @@ start_server $options {
             create_zset interset {-inf b -inf c 3 d +inf e +inf f}
         }
 
+        proc create_nonsets {} {
+            r del t
+            r set t t
+            r del l
+            r lpush l 1
+            r del h
+            r hset h f v
+        }
+
         test "ZINTERRANGEBYSCORE/ZINTERREVRANGEBYSCORE basics" {
             create_default_zset
             create_default_interset
@@ -217,6 +226,20 @@ start_server $options {
             assert_equal {d c b} [r zinterrevrangebyscore zset interset 3 0]
             assert_equal {f e d} [r zinterrevrangebyscore zset interset 6 3]
             assert_equal {f e} [r zinterrevrangebyscore zset interset +inf 4]
+
+            # exclusive ranges
+            assert_equal {b} [r zinterrangebyscore zset interset -inf (2]
+            assert_equal {b} [r zinterrangebyscore zset interset (-inf (2]
+            assert_equal {b c} [r zinterrangebyscore zset interset 0 (3]
+            assert_equal {e f} [r zinterrangebyscore zset interset (3 (6]
+            assert_equal {f} [r zinterrangebyscore zset interset (4 +inf]
+            assert_equal {f} [r zinterrangebyscore zset interset (4 (+inf]
+            assert_equal {b} [r zinterrevrangebyscore zset interset (2 -inf]
+            assert_equal {b} [r zinterrevrangebyscore zset interset (2 (-inf]
+            assert_equal {c b} [r zinterrevrangebyscore zset interset (3 (0]
+            assert_equal {f e} [r zinterrevrangebyscore zset interset (6 (3]
+            assert_equal {f} [r zinterrevrangebyscore zset interset +inf (4]
+            assert_equal {f} [r zinterrevrangebyscore zset interset (+inf (4]
 
             # test empty ranges
             assert_equal {} [r zinterrangebyscore zset interset 4 2]
@@ -261,9 +284,33 @@ start_server $options {
         }
 
         test "ZINTERRANGEBYSCORE with non-value min or max" {
-            assert_error "*not*float*" {r zrangebyscore fooz str 1}
-            assert_error "*not*float*" {r zrangebyscore fooz 1 str}
-            assert_error "*not*float*" {r zrangebyscore fooz 1 NaN}
+            create_default_zset
+            create_default_interset
+            assert_error "*not*float*" {r zinterrangebyscore zset interset str 1}
+            assert_error "*not*float*" {r zinterrangebyscore zset interset (str 1}
+            assert_error "*not*float*" {r zinterrangebyscore zset interset 1 str}
+            assert_error "*not*float*" {r zinterrangebyscore zset interset 1 (str}
+            assert_error "*not*float*" {r zinterrangebyscore zset interset 1 NaN}
+            assert_error "*not*float*" {r zinterrangebyscore zset interset 1 (NaN}
+        }
+
+        test "ZINTERRANGEBYSCORE with non-zset" {
+            create_default_zset
+            create_nonsets
+            assert_error "*WRONGTYPE*" {r zinterrangebyscore zset t -inf inf}
+            assert_error "*WRONGTYPE*" {r zinterrangebyscore zset l -inf inf}
+            assert_error "*WRONGTYPE*" {r zinterrangebyscore zset h -inf inf}
+            assert_error "*WRONGTYPE*" {r zinterrangebyscore t zset -inf inf}
+            assert_error "*WRONGTYPE*" {r zinterrangebyscore l zset -inf inf}
+            assert_error "*WRONGTYPE*" {r zinterrangebyscore h zset -inf inf}
+            assert_error "*WRONGTYPE*" {r zinterrangebyscore t l -inf inf}
+            assert_error "*WRONGTYPE*" {r zinterrevrangebyscore zset t inf -inf}
+            assert_error "*WRONGTYPE*" {r zinterrevrangebyscore zset l inf 1}
+            assert_error "*WRONGTYPE*" {r zinterrevrangebyscore zset h inf 2}
+            assert_error "*WRONGTYPE*" {r zinterrevrangebyscore t zset inf 3.5}
+            assert_error "*WRONGTYPE*" {r zinterrevrangebyscore l zset inf -inf}
+            assert_error "*WRONGTYPE*" {r zinterrevrangebyscore h zset inf -inf}
+            assert_error "*WRONGTYPE*" {r zinterrevrangebyscore h l inf -inf}
         }
     }
 
