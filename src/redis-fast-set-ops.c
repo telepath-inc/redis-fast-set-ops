@@ -5,6 +5,18 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_Init(ctx,"redis-fast-set-ops",1,REDISMODULE_APIVER_1) == REDISMODULE_ERR)
 		return REDISMODULE_ERR;
 
+    if (RedisModule_CreateCommand(ctx, "zdiffrangebyscore",
+                                  ZDiffRangeByScore_RedisCommand,
+                                  "readonly",1,2,1)
+            == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "zdiffrevrangebyscore",
+                                  ZDiffRevRangeByScore_RedisCommand,
+                                  "readonly",1,2,1)
+            == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
     if (RedisModule_CreateCommand(ctx, "zinterrangebyscore",
                                   ZInterRangeByScore_RedisCommand,
                                   "readonly",1,2,1)

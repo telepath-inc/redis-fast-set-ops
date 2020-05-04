@@ -209,6 +209,12 @@ start_server $options {
             r hset h f v
         }
 
+        proc create_default_diffset {} {
+            # zset, but with only one shared score (shouldn't matter)
+            # and lacking members b, d, and f
+            create_zset diffset {-inf a -inf c 3 e 4 g}
+        }
+
         test "ZINTERRANGEBYSCORE/ZINTERREVRANGEBYSCORE basics" {
             create_default_zset
             create_default_interset
@@ -311,6 +317,72 @@ start_server $options {
             assert_error "*WRONGTYPE*" {r zinterrevrangebyscore l zset inf -inf}
             assert_error "*WRONGTYPE*" {r zinterrevrangebyscore h zset inf -inf}
             assert_error "*WRONGTYPE*" {r zinterrevrangebyscore h l inf -inf}
+        }
+
+        test "ZDIFFRANGEBYSCORE/ZDIFFREVRANGEBYSCORE basics" {
+            create_default_zset
+            create_default_diffset
+
+            # non-existenet keys
+            assert_equal {a b c d e f g} [r zdiffrangebyscore zset nonset -inf +inf]
+            assert_equal {} [r zdiffrangebyscore nonset zset -inf +inf]
+            assert_equal {} [r zdiffrangebyscore nonset nonset -inf +inf]
+
+            assert_equal {b} [r zdiffrangebyscore zset diffset -inf 2]
+            assert_equal {b d} [r zdiffrangebyscore zset diffset 0 3]
+            assert_equal {d f} [r zdiffrangebyscore zset diffset 3 6]
+            assert_equal {f} [r zdiffrangebyscore zset diffset 4 +inf]
+            assert_equal {b} [r zdiffrevrangebyscore zset diffset 2 -inf]
+            assert_equal {d b} [r zdiffrevrangebyscore zset diffset 3 0]
+            assert_equal {f d} [r zdiffrevrangebyscore zset diffset 6 3]
+            assert_equal {f} [r zdiffrevrangebyscore zset diffset +inf 4]
+
+            # test empty ranges
+            assert_equal {} [r zdiffrangebyscore zset diffset 4 2]
+            assert_equal {} [r zdiffrangebyscore zset diffset 6 +inf]
+            assert_equal {} [r zdiffrangebyscore zset diffset -inf -6]
+            assert_equal {} [r zdiffrevrangebyscore zset diffset +inf 6]
+            assert_equal {} [r zdiffrevrangebyscore zset diffset -6 -inf]
+
+            # empty inner range
+            assert_equal {} [r zdiffrangebyscore zset diffset 2.4 2.6]
+        }
+
+        test "ZDIFFRANGEBYSCORE with WITHSCORES" {
+            create_default_zset
+            create_default_diffset
+            assert_equal {b 1 d 3} [r zdiffrangebyscore zset diffset 0 3 withscores]
+            assert_equal {d 3 b 1} [r zdiffrevrangebyscore zset diffset 3 0 withscores]
+        }
+
+        test "ZDIFFRANGEBYSCORE with LIMIT" {
+            create_default_zset
+            create_default_diffset
+            assert_equal {b d}   [r zdiffrangebyscore zset diffset -inf 10 LIMIT 0 2]
+            assert_equal {b d}   [r zdiffrangebyscore zset diffset 0 10 LIMIT 0 2]
+            assert_equal {f} [r zdiffrangebyscore zset diffset 0 10 LIMIT 2 3]
+            assert_equal {f} [r zdiffrangebyscore zset diffset 0 10 LIMIT 2 10]
+            assert_equal {f} [r zdiffrangebyscore zset diffset 0 +inf LIMIT 2 10]
+            assert_equal {}      [r zdiffrangebyscore zset diffset 0 10 LIMIT 20 10]
+            assert_equal {f d}   [r zdiffrevrangebyscore zset diffset 10 -inf LIMIT 0 2]
+            assert_equal {f d}   [r zdiffrevrangebyscore zset diffset 10 0 LIMIT 0 2]
+            assert_equal {b} [r zdiffrevrangebyscore zset diffset 10 0 LIMIT 2 3]
+            assert_equal {b} [r zdiffrevrangebyscore zset diffset 10 0 LIMIT 2 10]
+            assert_equal {b} [r zdiffrevrangebyscore zset diffset +inf 0 LIMIT 2 10]
+            assert_equal {}      [r zdiffrevrangebyscore zset diffset 10 0 LIMIT 20 10]
+        }
+
+        test "ZDIFFRANGEBYSCORE with LIMIT and WITHSCORES" {
+            create_default_zset
+            create_default_diffset
+            assert_equal {f 5} [r zdiffrangebyscore zset diffset 2 5 LIMIT 1 3 WITHSCORES]
+            assert_equal {d 3} [r zdiffrevrangebyscore zset diffset 5 2 LIMIT 1 3 WITHSCORES]
+        }
+
+        test "ZDIFFRANGEBYSCORE with non-value min or max" {
+            assert_error "*not*float*" {r zdiffrangebyscore fooz barz str 1}
+            assert_error "*not*float*" {r zdiffrangebyscore fooz barz 1 str}
+            assert_error "*not*float*" {r zdiffrangebyscore fooz barz 1 NaN}
         }
     }
 

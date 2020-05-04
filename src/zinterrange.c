@@ -25,10 +25,13 @@ int string2d(const char *s, size_t slen, double *dp) {
     return 1;
 }
 
-int zinterrangebyscoreGenericCommand(RedisModuleCtx *ctx,
-                                     RedisModuleString **argv,
-                                     int argc, int reverse) {
-    RedisModuleKey *zset = NULL, *interset = NULL;
+
+int zdiffinterrangebyscoreGenericCommand(RedisModuleCtx *ctx,
+                                         RedisModuleString **argv,
+                                         int argc,
+                                         int reverse,
+                                         int isdiff) {
+    RedisModuleKey *zset = NULL, *diffinterset = NULL;
     const char *startstr;
     size_t startstrlen;
     int startex = 0;
@@ -42,7 +45,7 @@ int zinterrangebyscoreGenericCommand(RedisModuleCtx *ctx,
     long long offset = 0;
     long long rangelen = 0;
     RedisModuleString *elem;
-    double zscore, interscore;
+    double zscore, interdiffscore;
 
     if (argc < 5) {
         // ZINTERRANGE only supports exactly two input keys with a range
@@ -131,21 +134,31 @@ int zinterrangebyscoreGenericCommand(RedisModuleCtx *ctx,
                                    "WRONGTYPE Operation against a key holding the wrong kind of value");
         return REDISMODULE_ERR;
     }
-    if ((interset = RedisModule_OpenKey(ctx,argv[2],REDISMODULE_READ)) != NULL
-         && RedisModule_KeyType(interset) != REDISMODULE_KEYTYPE_ZSET) {
+    if ((diffinterset = RedisModule_OpenKey(ctx,argv[2],REDISMODULE_READ)) != NULL
+         && RedisModule_KeyType(diffinterset) != REDISMODULE_KEYTYPE_ZSET) {
         RedisModule_CloseKey(zset);
-        RedisModule_CloseKey(interset);
+        RedisModule_CloseKey(diffinterset);
         RedisModule_ReplyWithError(ctx,
                                    "WRONGTYPE Operation against a key holding the wrong kind of value");
         return REDISMODULE_ERR;
     }
 
-    /* If either key doesn't exist, the intersection is empty. */
-    if (zset == NULL || interset == NULL) {
-        RedisModule_CloseKey(zset);
-        RedisModule_CloseKey(interset);
-        RedisModule_ReplyWithArray(ctx, 0);
-        return REDISMODULE_OK;
+    if (isdiff) {
+        /* If first key doesn't exist, the diff is empty. */
+        if (zset == NULL) {
+            RedisModule_CloseKey(zset);
+            RedisModule_CloseKey(diffinterset);
+            RedisModule_ReplyWithArray(ctx, 0);
+            return REDISMODULE_OK;
+        }
+    } else {
+        /* If either key doesn't exist, the intersection is empty. */
+        if (zset == NULL || diffinterset == NULL) {
+            RedisModule_CloseKey(zset);
+            RedisModule_CloseKey(diffinterset);
+            RedisModule_ReplyWithArray(ctx, 0);
+            return REDISMODULE_OK;
+        }
     }
 
     /* set up iterator for scored input */
@@ -157,12 +170,19 @@ int zinterrangebyscoreGenericCommand(RedisModuleCtx *ctx,
 
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
+    int chkval = isdiff ? REDISMODULE_ERR : REDISMODULE_OK;
     while ((limit == -1 || rangelen < limit) &&
             RedisModule_ZsetRangeEndReached(zset) == 0) {
         elem = RedisModule_ZsetRangeCurrentElement(zset, &zscore);
         // could consider swapping loop order based on size
-        if (RedisModule_ZsetScore(interset, elem, &interscore)
-                == REDISMODULE_OK) {
+        /* this conditional determines whether we add this element of the first
+         set to the reply, which we do if this is a diff and the second set
+         is empty or if the membership test for the element in the second set
+         results in the value we're looking for, which is success if this is an
+         inter or error if this is a diff.
+        */
+        if ((isdiff && diffinterset == NULL) ||
+            RedisModule_ZsetScore(diffinterset, elem, &interdiffscore) == chkval) {
             if (offset-- <= 0) {
                 RedisModule_ReplyWithString(ctx, elem);
                 if (withscores) {
@@ -187,19 +207,32 @@ int zinterrangebyscoreGenericCommand(RedisModuleCtx *ctx,
     // cleanup
     RedisModule_ZsetRangeStop(zset);
     RedisModule_CloseKey(zset);
-    RedisModule_CloseKey(interset);
+    RedisModule_CloseKey(diffinterset);
 
     return REDISMODULE_OK;
 }
 
+int ZDiffRangeByScore_RedisCommand(RedisModuleCtx *ctx,
+                                   RedisModuleString **argv,
+                                   int argc) {
+    return zdiffinterrangebyscoreGenericCommand(ctx, argv, argc, 0, 1);
+}
+
+int ZDiffRevRangeByScore_RedisCommand(RedisModuleCtx *ctx,
+                                      RedisModuleString **argv,
+                                      int argc) {
+    return zdiffinterrangebyscoreGenericCommand(ctx, argv, argc, 1, 1);
+}
+
+
 int ZInterRangeByScore_RedisCommand(RedisModuleCtx *ctx,
                                     RedisModuleString **argv,
                                     int argc) {
-    return zinterrangebyscoreGenericCommand(ctx, argv, argc, 0);
+    return zdiffinterrangebyscoreGenericCommand(ctx, argv, argc, 0, 0);
 }
 
 int ZInterRevRangeByScore_RedisCommand(RedisModuleCtx *ctx,
                                        RedisModuleString **argv,
                                        int argc) {
-    return zinterrangebyscoreGenericCommand(ctx, argv, argc, 1);
+    return zdiffinterrangebyscoreGenericCommand(ctx, argv, argc, 1, 0);
 }
