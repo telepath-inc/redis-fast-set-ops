@@ -312,6 +312,28 @@ start_server $options {
             assert_error "*WRONGTYPE*" {r zinterrevrangebyscore h zset inf -inf}
             assert_error "*WRONGTYPE*" {r zinterrevrangebyscore h l inf -inf}
         }
+
+        test "ZDIFFSTORE non-set single keys" {
+            create_nonsets
+            assert_error "*WRONGTYPE*" {r zdiffstore out t}
+            assert_error "*WRONGTYPE*" {r zdiffstore out l}
+            assert_error "*WRONGTYPE*" {r zdiffstore out h}
+        }
+
+        test "ZDIFFSTORE non-set other keys" {
+            create_default_zset
+            create_default_interset
+            create_nonsets
+            assert_error "*WRONGTYPE*" {r zdiffstore out zset interset t}
+            assert_error "*WRONGTYPE*" {r zdiffstore out zset t interset}
+            assert_error "*WRONGTYPE*" {r zdiffstore out t zset interset}
+            assert_error "*WRONGTYPE*" {r zdiffstore out zset interset l}
+            assert_error "*WRONGTYPE*" {r zdiffstore out zset l interset}
+            assert_error "*WRONGTYPE*" {r zdiffstore out l interset zset}
+            assert_error "*WRONGTYPE*" {r zdiffstore out zset interset h}
+            assert_error "*WRONGTYPE*" {r zdiffstore out zset h interset}
+            assert_error "*WRONGTYPE*" {r zdiffstore out h zset interset}
+        }
     }
 
     runz ziplist
