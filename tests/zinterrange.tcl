@@ -1,6 +1,6 @@
 # get the path of the test module in order to reference the absolute path of the tested module
 set moduleLocation [file dirname [file normalize [info script]]]
-dict set options overrides "loadmodule ${moduleLocation}/../src/zinterrange.so"
+dict set options overrides "loadmodule ${moduleLocation}/../src/redis-fast-set-ops.so"
 start_server $options {
 
     proc runs {encoding} {
