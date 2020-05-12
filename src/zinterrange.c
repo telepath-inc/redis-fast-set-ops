@@ -250,6 +250,92 @@ int SUnionCard_RedisCommand(RedisModuleCtx *ctx,
     return SDiffInterUnionCard_GenericCommand(ctx, argv, argc, SET_COMMAND_UNION);
 }
 
+int ZDiffStore_RedisCommand(RedisModuleCtx *ctx,
+                            RedisModuleString **argv,
+                            int argc) {
+    if (argc < 3) {
+        return RedisModule_WrongArity(ctx);
+    }
+
+    int keyscount = argc-2;
+    RedisModuleKey **keys;
+    keys = RedisModule_Alloc(keyscount*sizeof(RedisModuleKey*));
+
+    /* populate keys array and abort if any read key is not a zset */
+    int i,j,k;
+    int abort = 0;
+    for (i = 2; i < argc; i++) {
+        if ((keys[i-2] = RedisModule_OpenKey(ctx,argv[i],REDISMODULE_READ)) != NULL
+            && RedisModule_KeyType(keys[i-2]) != REDISMODULE_KEYTYPE_ZSET) {
+            RedisModule_CloseKey(keys[i-2]);
+            abort = 1;
+            break;
+        }
+    }
+    if (abort) {
+        for (j = 2; j < i; j++) {
+            RedisModule_CloseKey(keys[j-2]);
+        }
+        RedisModule_Free(keys);
+        return RedisModule_ReplyWithError(ctx,REDISMODULE_ERRORMSG_WRONGTYPE);
+    }
+
+    /* args are valid so at a minimum we are emptying the dest */
+    RedisModuleKey *destzset = RedisModule_OpenKey(ctx,argv[1],REDISMODULE_READ|REDISMODULE_WRITE);
+    RedisModule_UnlinkKey(destzset);
+
+    /* if the src zset doesn't exist the diff is empty so just cleanup */
+    if (keys[0] == NULL) {
+        RedisModule_ReplyWithLongLong(ctx, 0);
+        RedisModule_CloseKey(destzset);
+        for (k = 1; k < argc-2; k++) {
+            RedisModule_CloseKey(keys[k]);
+        }
+        RedisModule_Free(keys);
+        return REDISMODULE_OK;
+    }
+
+    RedisModule_ZsetFirstInScoreRange(keys[0], REDISMODULE_NEGATIVE_INFINITE, REDISMODULE_POSITIVE_INFINITE, 0, 0);
+
+    RedisModuleString *elem;
+    double zscore, otherscore;
+    int flags, found, added = 0;
+
+    while (!RedisModule_ZsetRangeEndReached(keys[0])) {
+        elem = RedisModule_ZsetRangeCurrentElement(keys[0],&zscore);
+        flags = 0;
+        found = 0;
+
+        for (k=1; k<keyscount;k++) {
+            if (keys[k] != NULL &&
+                RedisModule_ZsetScore(keys[k], elem, &otherscore) == REDISMODULE_OK) {
+                found = 1;
+                break;
+            }
+        }
+
+        if (!found) {
+            RedisModule_ZsetAdd(destzset, zscore, elem, &flags);
+            added++;
+        }
+
+        RedisModule_FreeString(ctx,elem);
+        RedisModule_ZsetRangeNext(keys[0]);
+    }
+    RedisModule_ZsetRangeStop(keys[0]);
+    RedisModule_CloseKey(destzset);
+
+    RedisModule_ReplyWithLongLong(ctx, added);
+
+    for (k=0;k<keyscount;k++) {
+        RedisModule_CloseKey(keys[k]);
+    }
+
+    RedisModule_Free(keys);
+
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (RedisModule_Init(ctx,"zinterrange",1,REDISMODULE_APIVER_1) == REDISMODULE_ERR)
 		return REDISMODULE_ERR;
@@ -284,6 +370,12 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
             == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+
+    if (RedisModule_CreateCommand(ctx, "zdiffstore",
+                                  ZDiffStore_RedisCommand,
+                                  "write deny-oom",1,-1,1)
+            == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
 }
