@@ -1,7 +1,7 @@
 # redis-fast-set-ops
 
 redis-fast-set-ops is a module for redis that provides new commands for
-performant, range-limited operations on sorted sets.
+performant, range-limited operations on sets and sorted sets.
 
 This module is well tested and used in production at Telepath. All provided
 commands are readonly operations on your data, so you can safely load this
