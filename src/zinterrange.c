@@ -4,6 +4,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #define SET_COMMAND_DIFF 0
 #define SET_COMMAND_INTER 1
